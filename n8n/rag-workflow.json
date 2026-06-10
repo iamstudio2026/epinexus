@@ -1,0 +1,90 @@
+{
+  "name": "EPINEXUS · RAG (Anthropic + PubMed MCP)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "epinexus-rag",
+        "responseMode": "responseNode",
+        "options": { "rawBody": false }
+      },
+      "id": "wh",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "epinexus-rag"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = items[0].json.body || items[0].json;\nconst pregunta = (body.pregunta || '').toString().trim();\nif (!pregunta) throw new Error('Falta `pregunta` en el body');\nconst usePubmed = body.usePubmed !== false; // default true\nconst payload = {\n  model: 'claude-sonnet-4-20250514',\n  max_tokens: 1024,\n  system: 'Eres un asistente de síntesis de evidencia para epidemiólogos. Busca en PubMed/NCBI y fuentes revisadas por pares. Responde SIEMPRE en español, conciso y estructurado: (1) Hallazgo principal, (2) Calidad/diseño de la evidencia, (3) Limitaciones, (4) Fuentes con autor/año/PMID o DOI cuando existan. No inventes citas; si no hay evidencia clara, dilo.',\n  messages: [{ role: 'user', content: pregunta }],\n  tools: [{ type: 'web_search_20250305', name: 'web_search' }]\n};\nif (usePubmed) payload.mcp_servers = [{ type: 'url', url: 'https://pubmed.mcp.claude.com/mcp', name: 'pubmed' }];\nreturn [{ json: { payload, pregunta, usePubmed } }];"
+      },
+      "id": "build",
+      "name": "Construir payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "anthropic-beta", "value": "mcp-client-2025-04-04" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "anthropic",
+      "name": "Anthropic Messages API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = items[0].json;\nif (r.error) return [{ json: { text: '', error: r.error.message || 'error' } }];\nconst content = r.content || [];\nconst text = content.filter(b => b.type === 'text').map(b => b.text).join('\\n').trim();\n// Extraer fuentes desde resultados MCP/web_search cuando estén disponibles\nconst sources = [];\ncontent.forEach(b => {\n  if (b.type === 'mcp_tool_result' && Array.isArray(b.content)) {\n    b.content.forEach(c => {\n      if (c.type === 'text' && /PMID|pubmed\\.ncbi/.test(c.text || '')) {\n        const m = (c.text || '').match(/PMID[:\\s]*(\\d+)/i);\n        sources.push({ pmid: m ? m[1] : null, text: c.text.slice(0, 240) });\n      }\n    });\n  }\n});\nreturn [{ json: { text, sources } }];"
+      },
+      "id": "parse",
+      "name": "Extraer texto y fuentes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" },
+              { "name": "Access-Control-Allow-Headers", "value": "Content-Type" },
+              { "name": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" }
+            ]
+          }
+        }
+      },
+      "id": "resp",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1080, 300]
+    }
+  ],
+  "connections": {
+    "Webhook":                  { "main": [[{ "node": "Construir payload",      "type": "main", "index": 0 }]] },
+    "Construir payload":        { "main": [[{ "node": "Anthropic Messages API", "type": "main", "index": 0 }]] },
+    "Anthropic Messages API":   { "main": [[{ "node": "Extraer texto y fuentes","type": "main", "index": 0 }]] },
+    "Extraer texto y fuentes":  { "main": [[{ "node": "Respond to Webhook",     "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

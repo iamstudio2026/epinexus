@@ -1,0 +1,29 @@
+{
+  "name": "epinexus",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Plataforma de epidemiología computacional: DAG causal, RAG científico (NCBI/PubMed), gemelo digital y revisión paraguas de 2º orden.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "rag": "node server/rag.js"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7",
+    "lucide-react": "^0.383.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.3.1",
+    "vitest": "^1.6.0"
+  }
+}
